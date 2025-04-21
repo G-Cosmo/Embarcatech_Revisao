@@ -92,8 +92,6 @@ void print_frame(int frame[5][5], float red_brightness, float green_brightness, 
         }
     }
     npWrite();
-    //sleep_ms(sleep_time);
-   // npClear(); 
 }
 
 

@@ -32,7 +32,7 @@
 bool color = true;  //variavel que indica que se o pixel está ligado ou desligado
 ssd1306_t ssd; //inicializa a estrutura do display
 
-bool buzzer_flag = true;    //flag que indica se o buzzer está ativado (true por padrão)
+bool buzzer_flag = false;    //flag que indica se o buzzer está ativado (false por padrão)
 uint buzzer_freq = 1000;    //frequencia do buzzer
 uint wrap_buzzer = 10000;   //wrap do buzzer
 uint x_center = 2047;   //centro padrão do joystick
@@ -46,7 +46,7 @@ uint wrapX = 0;  //wrap do pwm que controla o led vermelho
 uint wrapY = 0;  //wrap do pwm que controla o led azul
 uint64_t volatile last_time = 0;    //variavel que indica o tempo da ultima demição
 uint64_t volatile current_time = 0; //variavel que indica o tempo da atual medição
-bool led_flag = false;   //flag que habilita o controle dos leds via pwm (false por padrão)
+bool led_flag = true;   //flag que habilita o controle dos leds via pwm (true por padrão)
 
 const uint rgb_led[3] = {13,11,12}; //pinos do led rgb
 uint r_intensity = 100;  //intensidade do vermelho
@@ -73,6 +73,10 @@ void init_buttons() //função responsável por inicializar os botões
     gpio_init(buttonB);
     gpio_set_dir(buttonB, GPIO_IN);
     gpio_pull_up(buttonB);
+
+    gpio_init(buttonJ);
+    gpio_set_dir(buttonJ, GPIO_IN);
+    gpio_pull_up(buttonJ);
 }
 
 uint init_pwm(uint gpio, uint wrap) {
@@ -83,48 +87,6 @@ uint init_pwm(uint gpio, uint wrap) {
     
     pwm_set_enabled(slice_num, true);  
     return slice_num;  
-}
-
-void gpio_irq_handler(uint gpio, uint32_t events)
-{
-    //obtém o tempo atual em microssegundos
-    uint32_t current_time = to_us_since_boot(get_absolute_time());
-
-    //verifica se passou tempo suficiente desde o último evento
-    if (current_time - last_time > 200000) // 200 ms de debouncing
-    {
-
-        last_time = current_time; 
-
-        ssd1306_fill(&ssd, !color); //limpa o display
-        ssd1306_rect(&ssd, 3, 3, 122, 58, color, !color); //desenha um retângulo
-
-        if(gpio == buttonA)
-        {
-            buzzer_flag = !buzzer_flag;
-            led_flag = !led_flag;
-        }
-        
-        if (gpio == buttonB)    
-        {
-            printf("\n\n\rInterrupção em B.");
-            gpio_put(rgb_led[2], !gpio_get(rgb_led[2]));    //alterna o estado do led azul
-            ssd1306_draw_string(&ssd, "LED Azul", 30, 20); //desenha uma string    
-            if(gpio_get(rgb_led[2]))    //verifica se o led está ligado
-            {
-                ssd1306_draw_string(&ssd, "Ligado", 42, 30);
-                printf( "\n\rLED azul ligado.\n");
-                printf("\n\rInsira o caracter que deseja imprimir: ");
-            }else   //caso esteja desligado
-            {
-                ssd1306_draw_string(&ssd, "Desligado", 30, 30);
-                printf( "\n\rLED azul desligado.\n");
-                printf("\n\rInsira o caracter que deseja imprimir: ");
-
-            }   
-        }  
-
-    }
 }
 
 void init_display()
@@ -160,7 +122,106 @@ void clear_screen() {
     printf("\033[2J\033[H");
 }
 
+void animacao() {
+    int cores[5][3] = {
+        {100, 0, 0},     // Vermelho escuro
+        {100, 50, 0},    // Laranja escuro
+        {100, 100, 0},   // Amarelo escuro
+        {0, 100, 0},     // Verde escuro
+        {0, 0, 100}      // Azul escuro
+    };
 
+    // --- Fase 1: Arco-íris linha por linha
+    for (int linha = 0; linha < 5; linha++) {
+        for (int coluna = 0; coluna < 5; coluna++) {
+            int pos = getIndex(linha, coluna);
+            npSetLED(pos, cores[linha][0], cores[linha][1], cores[linha][2]);
+        }
+        npWrite();
+        sleep_ms(300);
+    }
+
+    // --- Fase 1: Desfazendo de cima para baixo
+    for (int coluna = 0; coluna < 5; coluna++) {
+        for (int linha = 0; linha < 5; linha++) {
+            int pos = getIndex(linha, coluna);
+            npSetLED(pos, 0, 0, 0);
+        }
+        npWrite();
+        sleep_ms(200);
+    }
+
+    sleep_ms(300);
+
+    // --- Fase 2: Quadrado crescendo com cores variadas
+    int camadas[3][3] = {
+        {100, 0, 100},    // Roxo para camada externa
+        {0, 100, 100},    // Ciano para intermediária
+        {255, 255, 255}   // Branco no centro
+    };
+
+    for (int raio = 0; raio <= 2; raio++) {
+        for (int linha = 0; linha < 5; linha++) {
+            for (int coluna = 0; coluna < 5; coluna++) {
+                if (abs(linha - 2) <= raio && abs(coluna - 2) <= raio) {
+                    int pos = getIndex(linha, coluna);
+                    npSetLED(pos, camadas[2 - raio][0], camadas[2 - raio][1], camadas[2 - raio][2]);
+                }
+            }
+        }
+        npWrite();
+        sleep_ms(300);
+    }
+
+    // --- Fase 2: Sumir gradualmente das bordas para o centro
+    for (int raio = 2; raio >= 0; raio--) {
+        for (int fade = 100; fade >= 0; fade -= 25) {  // Gradualmente apaga cada camada
+            for (int linha = 0; linha < 5; linha++) {
+                for (int coluna = 0; coluna < 5; coluna++) {
+                    if (abs(linha - 2) <= raio && abs(coluna - 2) <= raio) {
+                        int pos = getIndex(linha, coluna);
+                        int r = (camadas[2 - raio][0] * fade) / 100;
+                        int g = (camadas[2 - raio][1] * fade) / 100;
+                        int b = (camadas[2 - raio][2] * fade) / 100;
+                        npSetLED(pos, r, g, b);
+                    }
+                }
+            }
+            npWrite();
+            sleep_ms(100);
+        }
+    }
+
+    npClear();
+    npWrite();
+}
+
+
+void gpio_irq_handler(uint gpio, uint32_t events)
+{
+    //obtém o tempo atual em microssegundos
+    uint32_t current_time = to_us_since_boot(get_absolute_time());
+
+    //verifica se passou tempo suficiente desde o último evento
+    if (current_time - last_time > 200000) // 200 ms de debouncing
+    {
+
+        last_time = current_time; 
+
+        if(gpio == buttonA)
+        {
+            buzzer_flag = true;
+            led_flag = false;
+        }
+        
+        if (gpio == buttonB)    
+        {
+            buzzer_flag = false;
+            led_flag = true;
+        }  
+
+    }
+}
 int main()
 {
     stdio_init_all();   //inicializa a biblioteca stdio
@@ -198,8 +259,9 @@ int main()
     uint pwm_red = init_pwm(rgb_led[0],wrapX);
     uint pwm_blue = init_pwm(rgb_led[2],wrapY);
 
-    //ativa a interrupção do botão A
+    //ativa a interrupção dos botões
     gpio_set_irq_enabled_with_callback(buttonA, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);   
+    gpio_set_irq_enabled_with_callback(buttonB, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);   
 
     while (true) {
         adc_select_input(1);//seleciona a entrada do adc para x
@@ -281,11 +343,10 @@ int main()
 
         current_time = to_ms_since_boot(get_absolute_time());   //pega o tempo atual
 
-        // if(!gpio_get(buttonJ) && (current_time - last_time > 200))//implementa o debouncing
-        // {
-        //     last_time = current_time;
-        //     gpio_put(rgb_led[1], !gpio_get(rgb_led[1]));    //alterna o estado do led verde
-        // }
+        if(!gpio_get(buttonJ) && (current_time - last_time > 200))//implementa o debouncing
+        {
+            animacao();
+        }
 
     }
 }
